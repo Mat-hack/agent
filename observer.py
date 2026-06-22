@@ -94,10 +94,21 @@ def observer_node(state: GitState):
     if state.get("messages"):
         latest_message = state["messages"][-1].content
 
+    human_response = state.get("human_response", "")
+    correction_note = ""
+    if human_response:
+        correction_note = f"""
+HUMAN CORRECTION:
+The human overrode a detail of this todo with: "{human_response}".
+Judge completion against their corrected intent, not the literal original
+wording (e.g. if the todo says "branch X" but the human said "use Y
+instead", a successful action on Y satisfies this todo).
+"""
+
     observation_input = f"""
 CURRENT TODO:
 {current_todo}
-
+{correction_note}
 {latest_message}
 """
 
@@ -121,7 +132,10 @@ CURRENT TODO:
     return {
         "review": review,
         "todo_complete": todo_complete,
-        "done": False
+        "done": False,
+        # Consumed: the next todo (if any) must not see this as "the human
+        # just answered" — it didn't ask anything.
+        "human_response": "",
     }
 
 def observer_router(state: GitState):

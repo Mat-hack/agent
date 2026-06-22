@@ -1,67 +1,58 @@
-import subprocess
+"""
+Executor.
+
+The coordinator hands us a single literal git command:
+
+    COMMAND: git <command>
+
+The command is validated by the guardrail (validator.run_command) before it
+runs. There is no shell=True path.
+"""
+
+import os
 import re
 
 from langchain_core.messages import HumanMessage
 
 from state import GitState
+import validator
 
 from dotenv import load_dotenv
 load_dotenv()
-REPO_PATH = "/Users/mukulsharma/testing/Sentimental_analysis_main"
+
+# Fallback when a request did not carry an explicit repo_path.
+DEFAULT_REPO_PATH = os.getenv(
+    "REPO_PATH",
+    "/Users/mukulsharma/testing/Sentimental_analysis_main",
+)
 
 
-def extract_command(text: str) -> str | None:
-    """
-    Extract command from:
-
-    NEXT_COMMAND:
-    git log developer --oneline
-    """
-
-    match = re.search(
-        r"NEXT_COMMAND:\s*(.+)",
-        text,
-        re.DOTALL
-    )
-
-    if not match:
+def _extract_command(text: str) -> str | None:
+    """Pull the git command out of a `COMMAND: git ...` directive."""
+    m = re.search(r"COMMAND:\s*(.+)", text, re.DOTALL)
+    if not m:
         return None
-
-    return match.group(1).strip()
+    # The command is a single line; don't swallow any trailing prose.
+    return m.group(1).splitlines()[0].strip()
 
 
 def executor_node(state: GitState):
 
-    latest_message = state["messages"][-1]
+    repo_path = state.get("repo_path") or DEFAULT_REPO_PATH
 
-    command = extract_command(latest_message.content)
+    latest = state["messages"][-1].content
+    command = _extract_command(latest)
 
     if not command:
         return {
-            "messages": [
-                HumanMessage(
-                    content="ERROR: No NEXT_COMMAND found."
-                )
-            ],
-            "last_return_code": 1
+            "messages": [HumanMessage(content="ERROR: No COMMAND directive found.")],
+            "last_return_code": 1,
+            "last_output": "no command",
         }
 
-    print(f"\n>>> RUNNING: {command}\n")
-    print("\n===== EXECUTING =====")
-    print(command)
-
-    result = subprocess.run(
-        command,
-        cwd=REPO_PATH,
-        shell=True,
-        capture_output=True,
-        text=True
-    )
-
-    output = result.stdout.strip()
-
-    if not output:
-        output = result.stderr.strip()
+    print(f"\n>>> COMMAND: {command}\n")
+    result = validator.run_command(repo_path, command)
+    output = result.summary()
 
     print("\n===== OUTPUT =====")
     print(output)
@@ -73,10 +64,13 @@ def executor_node(state: GitState):
 COMMAND:
 {command}
 
-OUTPUT:
+RESULT:
 {output}
 """
             )
         ],
-        "last_return_code": result.returncode
+        "last_return_code": 0 if result.ok else 1,
+        "last_output": output,
+        "conflict": result.conflict,
+        "conflict_files": result.files,
     }

@@ -21,6 +21,29 @@ def planner_router(state: GitState):
     return "coordinator"
 
 
+def entry_router(state: GitState):
+    """
+    main.py calls app.invoke() fresh on every turn, including every turn
+    that just resumes after a human answer. Re-entering at the planner on
+    those resumes would regenerate the whole plan from the growing message
+    history each time, discarding progress and drifting from the original
+    intent. Only go to the planner for a genuinely new/empty plan (or an
+    explicit replan request); otherwise resume the in-progress plan
+    directly at the coordinator, with the human's answer already in state.
+    """
+
+    if state.get("replan"):
+        return "planner"
+
+    todos = state.get("todos") or []
+    current_idx = state.get("current_todo", 0)
+
+    if todos and current_idx < len(todos):
+        return "coordinator"
+
+    return "planner"
+
+
 def observer_router(state: GitState):
     """
     Observer controls workflow progress.
@@ -58,7 +81,13 @@ graph.add_node("human",human_node)
 
 # Entry
 
-graph.set_entry_point("planner")
+graph.set_conditional_entry_point(
+    entry_router,
+    {
+        "planner": "planner",
+        "coordinator": "coordinator",
+    }
+)
 
 # Planner routing
 
