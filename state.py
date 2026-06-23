@@ -22,6 +22,10 @@ class GitState(TypedDict):
     review: str
     todo_complete: bool
 
+    # Ordinal -> SHA resolved from the latest `git log` output, so the
+    # coordinator never has to re-count "commit N" from raw history.
+    commit_map: dict[int, str]
+
     waiting_for_user: bool
     question: str
     replan: bool

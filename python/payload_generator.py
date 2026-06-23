@@ -27,9 +27,6 @@ def generate_payload(
 
     llm = ChatGroq(model=config.GROQ_MODEL, api_key=config.GROQ_API_KEY, temperature=0)
 
-    # LangChain derives the bound tool's name from the schema's "title". It must
-    # match the tool name the system prompt tells the model to call ("emit_payload"),
-    # or Groq's server-side tool-call validation rejects the response with a 400.
     named_schema = {**schema, 'title': 'emit_payload'}
     structured_llm = llm.with_structured_output(named_schema, method='function_calling')
 

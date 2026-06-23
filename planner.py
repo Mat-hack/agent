@@ -16,10 +16,6 @@ llm = ChatGroq(
 )
 
 
-# ---------------------------------------------------------------------------
-# Repository conventions the planner may assume without asking or investigating.
-# ---------------------------------------------------------------------------
-
 REPO_RULES = SystemMessage(
     content="""
 REPOSITORY CONVENTIONS (assume these; never plan a todo to discover them):
@@ -35,10 +31,6 @@ REPOSITORY CONVENTIONS (assume these; never plan a todo to discover them):
 """
 )
 
-
-# ---------------------------------------------------------------------------
-# Planner specification.
-# ---------------------------------------------------------------------------
 
 PLANNER_PROMPT = SystemMessage(
     content="""
@@ -65,8 +57,10 @@ READS (inspection):
 
 WRITES (mutation):
 - create a branch from a ref/commit
+- switch to (check out) an existing branch
 - commit staged changes to `developer`
-- cherry-pick one or more commits onto the current branch
+- cherry-pick one or more commits onto a NAMED branch (you must be switched
+  to that branch first)
 - take specific files from a commit or branch (partial pick)
 - merge one branch into another
 - push a named branch to the remote (origin) — never force
@@ -94,6 +88,13 @@ PLANNING PRINCIPLES
 4. Order todos by dependency: discover before use, create before operate on.
 5. Never plan a todo whose action is "ask", "clarify", or "confirm with the
    user". Clarification is handled by the executor, not the plan.
+6. BRANCH TARGETING: cherry-pick and commit act on the CHECKED-OUT branch.
+   Creating a branch does NOT switch to it. So whenever you create or target
+   a branch and then cherry-pick onto it, insert an explicit "Switch to
+   branch X" todo BEFORE the cherry-pick, and name that branch X in the
+   cherry-pick todo. NEVER write "the current branch" in a cherry-pick todo
+   unless the user explicitly asked to operate on whatever branch is checked
+   out right now.
 
 OUTPUT CONTRACT
 
@@ -129,7 +130,14 @@ User: make branch demarioio from developer with commit 2 and commit 4
 TODOS:
 1. Find commit 2 and commit 4 hashes on developer
 2. Create branch demarioio at commit 2 hash
-3. Cherry-pick commit 4 onto demarioio
+3. Switch to branch demarioio
+4. Cherry-pick commit 4 onto demarioio
+
+User: make a branch emplifier from <hash A> and cherry pick <hash B>
+TODOS:
+1. Create branch emplifier at <hash A>
+2. Switch to branch emplifier
+3. Cherry-pick <hash B> onto emplifier
 
 User: make a branch qwemty from commit 5 and push it
 TODOS:
@@ -210,8 +218,6 @@ def planner_node(state: GitState):
             "human_response": "",
         }
 
-    # No todos parsed. Either an explicit DONE (conceptual question, nothing
-    # to do) or genuinely unusable output.
     if re.search(r"\bDONE\b", content.upper()):
         return {
             "messages": [response],

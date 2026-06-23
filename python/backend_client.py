@@ -1,9 +1,3 @@
-"""Generic REST client for the apiBuilderService backend.
-
-Mirrors builder_agent/executor/BackendApiClient.ts so the two stay
-interchangeable — same auth, same base URL convention, same endpoint
-naming (create{Entity} / read{Entity} / list{Entity}).
-"""
 from typing import Any, Optional
 
 import requests
@@ -69,3 +63,7 @@ class BackendApiClient:
 
     def list(self, entity_name: str, query: Optional[dict] = None) -> dict:
         return self._request('get', f'list{entity_name}', params=query or {})
+
+    def generate_project(self, project_id: str) -> dict:
+        
+        return self._request('put', f'generateProject/{project_id}', json={})

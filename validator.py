@@ -50,6 +50,17 @@ def _run(repo_path: str, args: list[str]) -> subprocess.CompletedProcess:
     )
 
 
+def is_ancestor(repo_path: str, commit: str, ref: str = "HEAD") -> bool:
+    """
+    True if `commit` is already reachable from `ref` (i.e. its changes are
+    already present). Cherry-picking such a commit is a no-op, so this lets
+    the executor short-circuit deterministically instead of trusting the LLM
+    to reason about ancestry. Returns False if either ref is unknown.
+    """
+    cp = _run(repo_path, ["merge-base", "--is-ancestor", commit, ref])
+    return cp.returncode == 0
+
+
 def _conflicted_files(repo_path: str) -> list[str]:
     """Files currently in an unmerged/conflicted state."""
     cp = _run(repo_path, ["status", "--porcelain"])

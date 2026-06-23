@@ -1,6 +1,4 @@
-"""Central place for paths and env vars so this folder can be moved or
-pointed at a different repo checkout without touching the other modules.
-"""
+
 import os
 from pathlib import Path
 
@@ -40,3 +38,8 @@ GROQ_MODEL = os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b')
 
 GROUNDING_LIST_LIMIT = int(os.getenv('GROUNDING_LIST_LIMIT', '50'))
 MAX_ATTEMPTS = int(os.getenv('MAX_ATTEMPTS', '1'))
+
+# Where a generated project's code lands on disk. The git orchestrator looks
+# for (and initialises) the repo at PROJECTS_ROOT/<project_id>. Point this at
+# wherever the backend's generateProject writes its output.
+PROJECTS_ROOT = Path(os.getenv('PROJECTS_ROOT', REPO_ROOT)).resolve()

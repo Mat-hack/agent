@@ -71,43 +71,66 @@ def prompt_operation() -> str:
         print("Please enter 'create' or 'update'.")
 
 
-def main() -> int:
-    args = parse_args()
+class DbOpAborted(Exception):
+    """Raised when the user declines the confirmation prompt."""
 
-    op = args.op or prompt_operation()
-    entity = args.entity or prompt_nonempty('Entity')
 
-    client = BackendApiClient()
+class DbOpFailed(Exception):
+    """Raised when the backend rejects every generation attempt."""
+
+
+def run_db_op(
+    op: str,
+    entity: str,
+    intent: str,
+    *,
+    entity_id: str | None = None,
+    client: BackendApiClient | None = None,
+    auto_approve: bool = False,
+    no_grounding: bool = False,
+    max_attempts: int | None = None,
+    extra_context: dict | None = None,
+) -> dict:
+    """Generate a payload from `intent` and create/update `entity` in the backend.
+
+    This is the callable core the CLI and the orchestrator both use. Returns
+    the backend's response dict (which carries the new/updated id). Raises
+    DbOpAborted if the user declines the y/n gate, or DbOpFailed if every
+    attempt is rejected.
+
+    extra_context: optional already-known linked-field options (e.g. a parent
+    id captured earlier in a create-project chain), merged on top of the
+    grounding context so children can reference a just-created parent.
+    """
+    client = client or BackendApiClient()
+    max_attempts = max_attempts or config.MAX_ATTEMPTS
 
     # For update we read the existing object first so the LLM modifies it
     # rather than regenerating from scratch (preserving id and all fields).
     current_object = None
-    entity_id = None
     if op == 'update':
-        entity_id = args.entity_id or prompt_nonempty('Id')
+        if not entity_id:
+            raise ValueError('entity_id is required for an update operation.')
         print(f'Reading current {entity} {entity_id}...')
-        try:
-            current_object = client.read(entity, entity_id)
-        except BackendApiError as error:
-            print(f'Could not read {entity} {entity_id}: {error.data or error}')
-            return 1
-
-    intent = args.intent or prompt_nonempty('Intent')
+        current_object = client.read(entity, entity_id)
 
     print(f'Loading schema for {entity}...')
     schema_data = load_entity_schema(entity)
 
-    if args.no_grounding:
-        print('Skipping grounding (--no-grounding); using empty context.')
+    if no_grounding:
+        print('Skipping grounding (no_grounding); using empty context.')
         context = {}
     else:
         print('Gathering linked-field context...')
         context = gather_context(schema_data['links'], client)
 
+    if extra_context:
+        context = {**context, **extra_context}
+
     prior_error = None
 
-    for attempt in range(1, args.max_attempts + 1):
-        print(f'Generating payload (attempt {attempt}/{args.max_attempts})...')
+    for attempt in range(1, max_attempts + 1):
+        print(f'Generating payload (attempt {attempt}/{max_attempts})...')
         payload = generate_payload(
             entity, schema_data['schema'], intent, context, prior_error,
             current_object, op,
@@ -120,9 +143,8 @@ def main() -> int:
         print('\nGenerated payload:')
         print(json.dumps(payload, indent=2))
 
-        if not args.yes and not confirm(f'\n{op.capitalize()} this {entity}?'):
-            print('Aborted — nothing was sent.')
-            return 0
+        if not auto_approve and not confirm(f'\n{op.capitalize()} this {entity}?'):
+            raise DbOpAborted(f'{op} {entity}')
 
         try:
             if op == 'update':
@@ -131,15 +153,53 @@ def main() -> int:
                 result = client.create(entity, payload)
             print(f'\n{op.capitalize()}d:')
             print(json.dumps(result, indent=2))
-            return 0
+            return result
         except BackendApiError as error:
             prior_error = str(error.data or error)
             print(f'Backend rejected the payload: {prior_error}')
-            if attempt < args.max_attempts:
+            if attempt < max_attempts:
                 print('Retrying generation with this error...\n')
 
-    print(f'Could not {op} a valid {entity} after {args.max_attempts} attempts.')
-    return 1
+    raise DbOpFailed(
+        f'Could not {op} a valid {entity} after {max_attempts} attempts.'
+    )
+
+
+def main() -> int:
+    args = parse_args()
+
+    op = args.op or prompt_operation()
+    entity = args.entity or prompt_nonempty('Entity')
+
+    client = BackendApiClient()
+
+    entity_id = None
+    if op == 'update':
+        entity_id = args.entity_id or prompt_nonempty('Id')
+
+    intent = args.intent or prompt_nonempty('Intent')
+
+    try:
+        run_db_op(
+            op,
+            entity,
+            intent,
+            entity_id=entity_id,
+            client=client,
+            auto_approve=args.yes,
+            no_grounding=args.no_grounding,
+            max_attempts=args.max_attempts,
+        )
+        return 0
+    except DbOpAborted:
+        print('Aborted — nothing was sent.')
+        return 0
+    except BackendApiError as error:
+        print(f'Could not read entity to update: {error.data or error}')
+        return 1
+    except DbOpFailed as error:
+        print(str(error))
+        return 1
 
 
 if __name__ == '__main__':

@@ -125,6 +125,7 @@ graph.add_conditional_edges(
     coordinator_router,
     {
         "executor": "executor",
+        "planner": "planner",
         "human": "human",
         "end": END,
     }
